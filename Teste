@@ -1,0 +1,682 @@
+// Estrutura de pastas sugerida:
+//
+// /src
+//   /domain
+//     /models
+//     /events
+//     /services
+//   /application
+//     /services
+//     /dtos
+//   /infrastructure
+//     /repositories
+//     /eventPublisher
+//   /interfaces
+//     /http
+//       /controllers
+//       /routes
+//       /middlewares
+//   /config
+//   app.js
+//   server.js
+
+// ==== DOMAIN LAYER ====
+// src/domain/models/Sale.js
+class Sale {
+  constructor(id, date, customerId, customerName, branchId, branchName, items = [], cancelled = false) {
+    this.id = id;
+    this.date = date;
+    this.customerId = customerId;
+    this.customerName = customerName; // Denormalização da descrição da entidade
+    this.branchId = branchId;
+    this.branchName = branchName; // Denormalização da descrição da entidade
+    this.items = items;
+    this.cancelled = cancelled;
+  }
+
+  getTotalAmount() {
+    return this.items.reduce((total, item) => total + item.getTotalAmount(), 0);
+  }
+
+  addItem(item) {
+    if (this.cancelled) {
+      throw new Error('Cannot add items to a cancelled sale');
+    }
+    
+    // Verificar se o produto já existe na venda
+    const existingItemIndex = this.items.findIndex(i => i.productId === item.productId);
+    
+    if (existingItemIndex >= 0) {
+      // Atualizar quantidade se o produto já existe
+      const existingItem = this.items[existingItemIndex];
+      const newQuantity = existingItem.quantity + item.quantity;
+      
+      if (newQuantity > 20) {
+        throw new Error('Cannot sell more than 20 identical items');
+      }
+      
+      existingItem.quantity = newQuantity;
+      existingItem.updateDiscount(); // Recalcular desconto
+    } else {
+      // Adicionar novo item
+      this.items.push(item);
+    }
+    
+    return this;
+  }
+
+  removeItem(productId) {
+    if (this.cancelled) {
+      throw new Error('Cannot remove items from a cancelled sale');
+    }
+    
+    const initialLength = this.items.length;
+    this.items = this.items.filter(item => item.productId !== productId);
+    
+    if (this.items.length === initialLength) {
+      throw new Error('Item not found in sale');
+    }
+    
+    return this;
+  }
+
+  cancel() {
+    if (this.cancelled) {
+      throw new Error('Sale is already cancelled');
+    }
+    
+    this.cancelled = true;
+    return this;
+  }
+
+  updateItem(productId, updates) {
+    if (this.cancelled) {
+      throw new Error('Cannot update items in a cancelled sale');
+    }
+    
+    const item = this.items.find(item => item.productId === productId);
+    
+    if (!item) {
+      throw new Error('Item not found in sale');
+    }
+    
+    if (updates.quantity) {
+      if (updates.quantity > 20) {
+        throw new Error('Cannot sell more than 20 identical items');
+      }
+      
+      item.quantity = updates.quantity;
+    }
+    
+    if (updates.unitPrice) {
+      item.unitPrice = updates.unitPrice;
+    }
+    
+    item.updateDiscount();
+    return this;
+  }
+}
+
+// src/domain/models/SaleItem.js
+class SaleItem {
+  constructor(productId, productName, quantity, unitPrice) {
+    this.productId = productId;
+    this.productName = productName; // Denormalização da descrição da entidade
+    this.quantity = quantity;
+    this.unitPrice = unitPrice;
+    this.discount = 0;
+    this.updateDiscount();
+  }
+
+  updateDiscount() {
+    // Implementação das regras de negócio de desconto
+    if (this.quantity >= 10 && this.quantity <= 20) {
+      this.discount = 0.2; // 20% de desconto
+    } else if (this.quantity >= 4) {
+      this.discount = 0.1; // 10% de desconto
+    } else {
+      this.discount = 0; // Sem desconto para menos de 4 itens
+    }
+  }
+
+  getTotalAmount() {
+    const subtotal = this.quantity * this.unitPrice;
+    const discountAmount = subtotal * this.discount;
+    return subtotal - discountAmount;
+  }
+
+  getDiscountAmount() {
+    const subtotal = this.quantity * this.unitPrice;
+    return subtotal * this.discount;
+  }
+}
+
+// src/domain/events/SaleEvents.js
+class SaleCreatedEvent {
+  constructor(sale) {
+    this.type = 'SaleCreated';
+    this.timestamp = new Date();
+    this.saleId = sale.id;
+    this.data = {
+      saleId: sale.id,
+      date: sale.date,
+      customerId: sale.customerId,
+      customerName: sale.customerName,
+      branchId: sale.branchId,
+      branchName: sale.branchName,
+      items: sale.items.map(item => ({
+        productId: item.productId,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discount: item.discount,
+        totalAmount: item.getTotalAmount()
+      })),
+      totalAmount: sale.getTotalAmount()
+    };
+  }
+}
+
+class SaleModifiedEvent {
+  constructor(sale) {
+    this.type = 'SaleModified';
+    this.timestamp = new Date();
+    this.saleId = sale.id;
+    this.data = {
+      saleId: sale.id,
+      items: sale.items.map(item => ({
+        productId: item.productId,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discount: item.discount,
+        totalAmount: item.getTotalAmount()
+      })),
+      totalAmount: sale.getTotalAmount()
+    };
+  }
+}
+
+class SaleCancelledEvent {
+  constructor(sale) {
+    this.type = 'SaleCancelled';
+    this.timestamp = new Date();
+    this.saleId = sale.id;
+    this.data = {
+      saleId: sale.id,
+      date: sale.date,
+      customerId: sale.customerId,
+      branchId: sale.branchId,
+      totalAmount: sale.getTotalAmount()
+    };
+  }
+}
+
+class ItemCancelledEvent {
+  constructor(sale, productId) {
+    this.type = 'ItemCancelled';
+    this.timestamp = new Date();
+    this.saleId = sale.id;
+    this.data = {
+      saleId: sale.id,
+      productId: productId,
+      totalAmount: sale.getTotalAmount()
+    };
+  }
+}
+
+// ==== APPLICATION LAYER ====
+// src/application/services/SaleService.js
+class SaleService {
+  constructor(saleRepository, eventPublisher) {
+    this.saleRepository = saleRepository;
+    this.eventPublisher = eventPublisher;
+  }
+
+  async createSale(saleDTO) {
+    const { customerId, customerName, branchId, branchName, items } = saleDTO;
+    
+    const sale = new Sale(
+      Date.now().toString(), // ID simples para exemplo
+      new Date(),
+      customerId,
+      customerName,
+      branchId,
+      branchName
+    );
+    
+    // Adicionar itens
+    items.forEach(item => {
+      const saleItem = new SaleItem(
+        item.productId,
+        item.productName,
+        item.quantity,
+        item.unitPrice
+      );
+      
+      sale.addItem(saleItem);
+    });
+    
+    // Salvar no repositório
+    const savedSale = await this.saleRepository.save(sale);
+    
+    // Publicar evento
+    this.eventPublisher.publish(new SaleCreatedEvent(savedSale));
+    
+    return savedSale;
+  }
+
+  async getSaleById(id) {
+    return this.saleRepository.getById(id);
+  }
+
+  async getAllSales() {
+    return this.saleRepository.getAll();
+  }
+
+  async updateSale(id, saleDTO) {
+    const sale = await this.saleRepository.getById(id);
+    
+    if (!sale) {
+      throw new Error('Sale not found');
+    }
+    
+    if (sale.cancelled) {
+      throw new Error('Cannot update cancelled sale');
+    }
+    
+    // Atualizar propriedades básicas se fornecidas
+    if (saleDTO.customerId) sale.customerId = saleDTO.customerId;
+    if (saleDTO.customerName) sale.customerName = saleDTO.customerName;
+    if (saleDTO.branchId) sale.branchId = saleDTO.branchId;
+    if (saleDTO.branchName) sale.branchName = saleDTO.branchName;
+    
+    // Atualizar itens se fornecidos
+    if (saleDTO.items) {
+      // Remover todos os itens existentes
+      sale.items = [];
+      
+      // Adicionar novos itens
+      saleDTO.items.forEach(item => {
+        const saleItem = new SaleItem(
+          item.productId,
+          item.productName,
+          item.quantity,
+          item.unitPrice
+        );
+        
+        sale.addItem(saleItem);
+      });
+    }
+    
+    // Salvar a venda atualizada
+    const updatedSale = await this.saleRepository.update(id, sale);
+    
+    // Publicar evento
+    this.eventPublisher.publish(new SaleModifiedEvent(updatedSale));
+    
+    return updatedSale;
+  }
+
+  async cancelSale(id) {
+    const sale = await this.saleRepository.getById(id);
+    
+    if (!sale) {
+      throw new Error('Sale not found');
+    }
+    
+    sale.cancel();
+    
+    // Salvar a venda cancelada
+    const cancelledSale = await this.saleRepository.update(id, sale);
+    
+    // Publicar evento
+    this.eventPublisher.publish(new SaleCancelledEvent(cancelledSale));
+    
+    return cancelledSale;
+  }
+
+  async removeItemFromSale(saleId, productId) {
+    const sale = await this.saleRepository.getById(saleId);
+    
+    if (!sale) {
+      throw new Error('Sale not found');
+    }
+    
+    sale.removeItem(productId);
+    
+    // Salvar a venda atualizada
+    const updatedSale = await this.saleRepository.update(saleId, sale);
+    
+    // Publicar evento
+    this.eventPublisher.publish(new ItemCancelledEvent(updatedSale, productId));
+    this.eventPublisher.publish(new SaleModifiedEvent(updatedSale));
+    
+    return updatedSale;
+  }
+}
+
+// ==== INFRASTRUCTURE LAYER ====
+// src/infrastructure/repositories/SaleRepository.js
+class SaleRepository {
+  constructor() {
+    // Em uma implementação real, teríamos uma conexão com o banco de dados
+    this.sales = [];
+  }
+
+  async save(sale) {
+    // Clone do objeto para evitar referências
+    const saleCopy = JSON.parse(JSON.stringify(sale));
+    
+    // Recriar métodos após deserialização
+    this._rehydrateSale(saleCopy);
+    
+    this.sales.push(saleCopy);
+    return saleCopy;
+  }
+
+  async getById(id) {
+    const sale = this.sales.find(s => s.id === id);
+    
+    if (!sale) {
+      return null;
+    }
+    
+    // Clone do objeto para evitar referências
+    const saleCopy = JSON.parse(JSON.stringify(sale));
+    
+    // Recriar métodos após deserialização
+    return this._rehydrateSale(saleCopy);
+  }
+
+  async getAll() {
+    // Clone do array para evitar referências
+    return this.sales.map(sale => {
+      const saleCopy = JSON.parse(JSON.stringify(sale));
+      return this._rehydrateSale(saleCopy);
+    });
+  }
+
+  async update(id, sale) {
+    const index = this.sales.findIndex(s => s.id === id);
+    
+    if (index === -1) {
+      throw new Error('Sale not found');
+    }
+    
+    // Clone do objeto para evitar referências
+    const saleCopy = JSON.parse(JSON.stringify(sale));
+    
+    // Recriar métodos após deserialização
+    this._rehydrateSale(saleCopy);
+    
+    this.sales[index] = saleCopy;
+    return saleCopy;
+  }
+
+  async delete(id) {
+    const index = this.sales.findIndex(s => s.id === id);
+    
+    if (index === -1) {
+      throw new Error('Sale not found');
+    }
+    
+    this.sales.splice(index, 1);
+  }
+
+  // Método auxiliar para recriar métodos em objetos desserializados
+  _rehydrateSale(sale) {
+    // Recriar métodos do objeto Sale
+    Object.setPrototypeOf(sale, Sale.prototype);
+    
+    // Recriar métodos dos itens
+    sale.items = sale.items.map(item => {
+      Object.setPrototypeOf(item, SaleItem.prototype);
+      return item;
+    });
+    
+    return sale;
+  }
+}
+
+// src/infrastructure/eventPublisher/EventPublisher.js
+class EventPublisher {
+  constructor() {
+    this.handlers = {};
+  }
+
+  subscribe(eventType, handler) {
+    if (!this.handlers[eventType]) {
+      this.handlers[eventType] = [];
+    }
+    
+    this.handlers[eventType].push(handler);
+  }
+
+  publish(event) {
+    const { type } = event;
+    
+    if (!this.handlers[type]) {
+      // Para fins de demonstração, apenas logamos o evento
+      console.log(`Event published: ${type}`, event);
+      return;
+    }
+    
+    this.handlers[type].forEach(handler => handler(event));
+  }
+}
+
+// ==== INTERFACE LAYER ====
+// src/interfaces/http/controllers/SaleController.js
+class SaleController {
+  constructor(saleService) {
+    this.saleService = saleService;
+  }
+
+  async createSale(req, res) {
+    try {
+      const sale = await this.saleService.createSale(req.body);
+      res.status(201).json({
+        success: true,
+        data: this._formatSaleResponse(sale)
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  async getSale(req, res) {
+    try {
+      const { id } = req.params;
+      const sale = await this.saleService.getSaleById(id);
+      
+      if (!sale) {
+        return res.status(404).json({
+          success: false,
+          error: 'Sale not found'
+        });
+      }
+      
+      res.status(200).json({
+        success: true,
+        data: this._formatSaleResponse(sale)
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  async getAllSales(req, res) {
+    try {
+      const sales = await this.saleService.getAllSales();
+      
+      res.status(200).json({
+        success: true,
+        count: sales.length,
+        data: sales.map(sale => this._formatSaleResponse(sale))
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  async updateSale(req, res) {
+    try {
+      const { id } = req.params;
+      const sale = await this.saleService.updateSale(id, req.body);
+      
+      res.status(200).json({
+        success: true,
+        data: this._formatSaleResponse(sale)
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  async cancelSale(req, res) {
+    try {
+      const { id } = req.params;
+      const sale = await this.saleService.cancelSale(id);
+      
+      res.status(200).json({
+        success: true,
+        data: this._formatSaleResponse(sale)
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  async removeItem(req, res) {
+    try {
+      const { saleId, productId } = req.params;
+      const sale = await this.saleService.removeItemFromSale(saleId, productId);
+      
+      res.status(200).json({
+        success: true,
+        data: this._formatSaleResponse(sale)
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  // Método auxiliar para formatar a resposta da venda
+  _formatSaleResponse(sale) {
+    return {
+      id: sale.id,
+      date: sale.date,
+      customer: {
+        id: sale.customerId,
+        name: sale.customerName
+      },
+      branch: {
+        id: sale.branchId,
+        name: sale.branchName
+      },
+      items: sale.items.map(item => ({
+        product: {
+          id: item.productId,
+          name: item.productName
+        },
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discount: item.discount,
+        discountAmount: item.getDiscountAmount(),
+        totalAmount: item.getTotalAmount()
+      })),
+      totalAmount: sale.getTotalAmount(),
+      cancelled: sale.cancelled
+    };
+  }
+}
+
+// src/interfaces/http/routes/saleRoutes.js
+const express = require('express');
+
+function setupSaleRoutes(app, saleController) {
+  const router = express.Router();
+
+  // Rotas para vendas
+  router.post('/', saleController.createSale.bind(saleController));
+  router.get('/', saleController.getAllSales.bind(saleController));
+  router.get('/:id', saleController.getSale.bind(saleController));
+  router.put('/:id', saleController.updateSale.bind(saleController));
+  router.patch('/:id/cancel', saleController.cancelSale.bind(saleController));
+  router.delete('/:id/items/:productId', saleController.removeItem.bind(saleController));
+
+  app.use('/api/sales', router);
+}
+
+// ==== APP SETUP ====
+// src/app.js
+const express = require('express');
+
+function setupApp() {
+  const app = express();
+  
+  // Middlewares
+  app.use(express.json());
+  
+  // Repositórios
+  const saleRepository = new SaleRepository();
+  
+  // Event Publisher
+  const eventPublisher = new EventPublisher();
+  
+  // Serviços
+  const saleService = new SaleService(saleRepository, eventPublisher);
+  
+  // Controladores
+  const saleController = new SaleController(saleService);
+  
+  // Rotas
+  setupSaleRoutes(app, saleController);
+  
+  // Rota raiz
+  app.get('/', (req, res) => {
+    res.send('API de Vendas DeveloperStore');
+  });
+  
+  return app;
+}
+
+// src/server.js
+function startServer() {
+  const app = setupApp();
+  const PORT = process.env.PORT || 3000;
+  
+  app.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+  });
+}
+
+module.exports = {
+  Sale,
+  SaleItem,
+  SaleService,
+  SaleRepository,
+  EventPublisher,
+  SaleController,
+  setupApp,
+  startServer
+};
