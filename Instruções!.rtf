@@ -1,0 +1,428 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1046{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\colortbl ;\red0\green0\blue255;}
+{\*\generator Riched20 10.0.22621}\viewkind4\uc1 
+\pard\sa200\sl276\slmult1\f0\fs22\lang22 # Instru\'e7\'f5es para Configura\'e7\'e3o, Execu\'e7\'e3o e Teste do Projeto\par
+\par
+Este documento descreve como configurar, executar e testar a API de vendas DeveloperStore baseada em DDD.\par
+\par
+## Requisitos\par
+\par
+- Node.js (vers\'e3o 14.x ou superior)\par
+- npm (vers\'e3o 6.x ou superior)\par
+- Git\par
+\par
+## Configura\'e7\'e3o do Projeto\par
+\par
+### 1. Clonar o Reposit\'f3rio\par
+\par
+```bash\par
+git clone <URL_DO_SEU_REPOSIT\'d3RIO>\par
+cd <NOME_DO_REPOSIT\'d3RIO>\par
+```\par
+\par
+### 2. Instalar Depend\'eancias\par
+\par
+Crie um arquivo `package.json` na raiz do projeto:\par
+\par
+```bash\par
+npm init -y\par
+```\par
+\par
+Edite o arquivo `package.json` para incluir as depend\'eancias necess\'e1rias:\par
+\par
+```json\par
+\{\par
+  "name": "developer-store-sales-api",\par
+  "version": "1.0.0",\par
+  "description": "API de vendas baseada em DDD para a DeveloperStore",\par
+  "main": "src/server.js",\par
+  "scripts": \{\par
+    "start": "node src/server.js",\par
+    "dev": "nodemon src/server.js",\par
+    "test": "jest"\par
+  \},\par
+  "keywords": ["ddd", "api", "sales"],\par
+  "author": "Seu Nome",\par
+  "license": "MIT",\par
+  "dependencies": \{\par
+    "express": "^4.18.2",\par
+    "body-parser": "^1.20.2"\par
+  \},\par
+  "devDependencies": \{\par
+    "jest": "^29.5.0",\par
+    "nodemon": "^2.0.22",\par
+    "supertest": "^6.3.3"\par
+  \}\par
+\}\par
+```\par
+\par
+Instale as depend\'eancias:\par
+\par
+```bash\par
+npm install\par
+```\par
+\par
+### 3. Estrutura de Diret\'f3rios\par
+\par
+Crie a estrutura de diret\'f3rios do projeto:\par
+\par
+```bash\par
+mkdir -p src/domain/models src/domain/events src/application/services src/infrastructure/repositories src/infrastructure/eventPublisher src/interfaces/http/controllers src/interfaces/http/routes src/config\par
+```\par
+\par
+### 4. Arquivos do Projeto\par
+\par
+Crie os arquivos do projeto conforme a implementa\'e7\'e3o fornecida anteriormente. Cada classe deve ser colocada em seu pr\'f3prio arquivo dentro do diret\'f3rio apropriado.\par
+\par
+## Execu\'e7\'e3o do Projeto\par
+\par
+### Ambiente de Desenvolvimento\par
+\par
+Para executar a API em modo de desenvolvimento com recarga autom\'e1tica:\par
+\par
+```bash\par
+npm run dev\par
+```\par
+\par
+### Ambiente de Produ\'e7\'e3o\par
+\par
+Para executar a API em modo de produ\'e7\'e3o:\par
+\par
+```bash\par
+npm start\par
+```\par
+\par
+A API estar\'e1 dispon\'edvel em {{\field{\*\fldinst{HYPERLINK http://localhost:3000 }}{\fldrslt{http://localhost:3000\ul0\cf0}}}}\f0\fs22\par
+\par
+## Testes\par
+\par
+### Configura\'e7\'e3o dos Testes\par
+\par
+Os testes utilizam Jest como framework de testes.\par
+\par
+Crie um diret\'f3rio para os testes:\par
+\par
+```bash\par
+mkdir -p tests/unit tests/integration\par
+```\par
+\par
+### Exemplos de Testes Unit\'e1rios\par
+\par
+Crie um arquivo `tests/unit/models/Sale.test.js`:\par
+\par
+```javascript\par
+const \{ Sale, SaleItem \} = require('../../../src/domain/models/Sale');\par
+\par
+describe('Sale Model', () => \{\par
+  test('should calculate total amount correctly', () => \{\par
+    const sale = new Sale('1', new Date(), '101', 'Cliente Teste', '201', 'Filial Teste');\par
+    const item1 = new SaleItem('301', 'Produto 1', 3, 10.0);\par
+    const item2 = new SaleItem('302', 'Produto 2', 5, 20.0);\par
+    \par
+    sale.addItem(item1);\par
+    sale.addItem(item2);\par
+    \par
+    // Item 1: 3 x 10 = 30 (sem desconto pois < 4 itens)\par
+    // Item 2: 5 x 20 = 100 * 0.9 = 90 (10% de desconto pois >= 4 itens)\par
+    // Total: 30 + 90 = 120\par
+    expect(sale.getTotalAmount()).toBe(120);\par
+  \});\par
+\par
+  test('should not allow more than 20 identical items', () => \{\par
+    const sale = new Sale('1', new Date(), '101', 'Cliente Teste', '201', 'Filial Teste');\par
+    const item = new SaleItem('301', 'Produto 1', 21, 10.0);\par
+    \par
+    expect(() => \{\par
+      sale.addItem(item);\par
+    \}).toThrow('Cannot sell more than 20 identical items');\par
+  \});\par
+\par
+  test('should apply 20% discount for 10-20 items', () => \{\par
+    const sale = new Sale('1', new Date(), '101', 'Cliente Teste', '201', 'Filial Teste');\par
+    const item = new SaleItem('301', 'Produto 1', 15, 10.0);\par
+    \par
+    sale.addItem(item);\par
+    \par
+    // 15 x 10 = 150 * 0.8 = 120 (20% de desconto)\par
+    expect(sale.getTotalAmount()).toBe(120);\par
+  \});\par
+\});\par
+```\par
+\par
+### Exemplos de Testes de Integra\'e7\'e3o\par
+\par
+Crie um arquivo `tests/integration/sales.test.js`:\par
+\par
+```javascript\par
+const request = require('supertest');\par
+const \{ setupApp \} = require('../../src/app');\par
+\par
+describe('Sales API', () => \{\par
+  let app;\par
+  \par
+  beforeEach(() => \{\par
+    app = setupApp();\par
+  \});\par
+  \par
+  test('should create a new sale', async () => \{\par
+    const response = await request(app)\par
+      .post('/api/sales')\par
+      .send(\{\par
+        customerId: '101',\par
+        customerName: 'Cliente Teste',\par
+        branchId: '201',\par
+        branchName: 'Filial Teste',\par
+        items: [\par
+          \{\par
+            productId: '301',\par
+            productName: 'Produto 1',\par
+            quantity: 5,\par
+            unitPrice: 10.0\par
+          \}\par
+        ]\par
+      \});\par
+    \par
+    expect(response.statusCode).toBe(201);\par
+    expect(response.body.success).toBe(true);\par
+    expect(response.body.data.items[0].discount).toBe(0.1); // 10% de desconto\par
+  \});\par
+  \par
+  test('should get all sales', async () => \{\par
+    // Primeiro, criar uma venda\par
+    await request(app)\par
+      .post('/api/sales')\par
+      .send(\{\par
+        customerId: '101',\par
+        customerName: 'Cliente Teste',\par
+        branchId: '201',\par
+        branchName: 'Filial Teste',\par
+        items: [\par
+          \{\par
+            productId: '301',\par
+            productName: 'Produto 1',\par
+            quantity: 5,\par
+            unitPrice: 10.0\par
+          \}\par
+        ]\par
+      \});\par
+    \par
+    // Depois, buscar todas as vendas\par
+    const response = await request(app).get('/api/sales');\par
+    \par
+    expect(response.statusCode).toBe(200);\par
+    expect(response.body.success).toBe(true);\par
+    expect(response.body.count).toBeGreaterThan(0);\par
+  \});\par
+\});\par
+```\par
+\par
+### Executar os Testes\par
+\par
+Para executar todos os testes:\par
+\par
+```bash\par
+npm test\par
+```\par
+\par
+## Exemplos de Uso da API\par
+\par
+### 1. Criar uma Venda\par
+\par
+**Requisi\'e7\'e3o:**\par
+\par
+```bash\par
+curl -X POST {{\field{\*\fldinst{HYPERLINK http://localhost:3000/api/sales }}{\fldrslt{http://localhost:3000/api/sales\ul0\cf0}}}}\f0\fs22  \\\par
+  -H "Content-Type: application/json" \\\par
+  -d '\{\par
+    "customerId": "101",\par
+    "customerName": "Cliente Exemplo",\par
+    "branchId": "201",\par
+    "branchName": "Filial Centro",\par
+    "items": [\par
+      \{\par
+        "productId": "301",\par
+        "productName": "Smartphone XYZ",\par
+        "quantity": 2,\par
+        "unitPrice": 1200.00\par
+      \},\par
+      \{\par
+        "productId": "302",\par
+        "productName": "Headphone Bluetooth",\par
+        "quantity": 5,\par
+        "unitPrice": 150.00\par
+      \}\par
+    ]\par
+  \}'\par
+```\par
+\par
+**Resposta:**\par
+\par
+```json\par
+\{\par
+  "success": true,\par
+  "data": \{\par
+    "id": "1682186532412",\par
+    "date": "2025-04-22T12:15:32.412Z",\par
+    "customer": \{\par
+      "id": "101",\par
+      "name": "Cliente Exemplo"\par
+    \},\par
+    "branch": \{\par
+      "id": "201",\par
+      "name": "Filial Centro"\par
+    \},\par
+    "items": [\par
+      \{\par
+        "product": \{\par
+          "id": "301",\par
+          "name": "Smartphone XYZ"\par
+        \},\par
+        "quantity": 2,\par
+        "unitPrice": 1200.00,\par
+        "discount": 0,\par
+        "discountAmount": 0,\par
+        "totalAmount": 2400.00\par
+      \},\par
+      \{\par
+        "product": \{\par
+          "id": "302",\par
+          "name": "Headphone Bluetooth"\par
+        \},\par
+        "quantity": 5,\par
+        "unitPrice": 150.00,\par
+        "discount": 0.1,\par
+        "discountAmount": 75.00,\par
+        "totalAmount": 675.00\par
+      \}\par
+    ],\par
+    "totalAmount": 3075.00,\par
+    "cancelled": false\par
+  \}\par
+\}\par
+```\par
+\par
+### 2. Buscar uma Venda por ID\par
+\par
+**Requisi\'e7\'e3o:**\par
+\par
+```bash\par
+curl -X GET {{\field{\*\fldinst{HYPERLINK http://localhost:3000/api/sales/1682186532412 }}{\fldrslt{http://localhost:3000/api/sales/1682186532412\ul0\cf0}}}}\f0\fs22\par
+```\par
+\par
+**Resposta:**\par
+\par
+```json\par
+\{\par
+  "success": true,\par
+  "data": \{\par
+    "id": "1682186532412",\par
+    "date": "2025-04-22T12:15:32.412Z",\par
+    "customer": \{\par
+      "id": "101",\par
+      "name": "Cliente Exemplo"\par
+    \},\par
+    "branch": \{\par
+      "id": "201",\par
+      "name": "Filial Centro"\par
+    \},\par
+    "items": [\par
+      \{\par
+        "product": \{\par
+          "id": "301",\par
+          "name": "Smartphone XYZ"\par
+        \},\par
+        "quantity": 2,\par
+        "unitPrice": 1200.00,\par
+        "discount": 0,\par
+        "discountAmount": 0,\par
+        "totalAmount": 2400.00\par
+      \},\par
+      \{\par
+        "product": \{\par
+          "id": "302",\par
+          "name": "Headphone Bluetooth"\par
+        \},\par
+        "quantity": 5,\par
+        "unitPrice": 150.00,\par
+        "discount": 0.1,\par
+        "discountAmount": 75.00,\par
+        "totalAmount": 675.00\par
+      \}\par
+    ],\par
+    "totalAmount": 3075.00,\par
+    "cancelled": false\par
+  \}\par
+\}\par
+```\par
+\par
+### 3. Cancelar uma Venda\par
+\par
+**Requisi\'e7\'e3o:**\par
+\par
+```bash\par
+curl -X PATCH {{\field{\*\fldinst{HYPERLINK http://localhost:3000/api/sales/1682186532412/cancel }}{\fldrslt{http://localhost:3000/api/sales/1682186532412/cancel\ul0\cf0}}}}\f0\fs22\par
+```\par
+\par
+**Resposta:**\par
+\par
+```json\par
+\{\par
+  "success": true,\par
+  "data": \{\par
+    "id": "1682186532412",\par
+    "date": "2025-04-22T12:15:32.412Z",\par
+    "customer": \{\par
+      "id": "101",\par
+      "name": "Cliente Exemplo"\par
+    \},\par
+    "branch": \{\par
+      "id": "201",\par
+      "name": "Filial Centro"\par
+    \},\par
+    "items": [\par
+      \{\par
+        "product": \{\par
+          "id": "301",\par
+          "name": "Smartphone XYZ"\par
+        \},\par
+        "quantity": 2,\par
+        "unitPrice": 1200.00,\par
+        "discount": 0,\par
+        "discountAmount": 0,\par
+        "totalAmount": 2400.00\par
+      \},\par
+      \{\par
+        "product": \{\par
+          "id": "302",\par
+          "name": "Headphone Bluetooth"\par
+        \},\par
+        "quantity": 5,\par
+        "unitPrice": 150.00,\par
+        "discount": 0.1,\par
+        "discountAmount": 75.00,\par
+        "totalAmount": 675.00\par
+      \}\par
+    ],\par
+    "totalAmount": 3075.00,\par
+    "cancelled": true\par
+  \}\par
+\}\par
+```\par
+\par
+## Sobre o Projeto\par
+\par
+Este projeto implementa uma API RESTful para gerenciamento de vendas, seguindo os princ\'edpios do Domain-Driven Design (DDD). A API oferece recursos para criar, listar, atualizar e cancelar vendas, al\'e9m de permitir a remo\'e7\'e3o de itens espec\'edficos.\par
+\par
+As regras de neg\'f3cio implementadas incluem:\par
+- Desconto de 10% para compras com 4 ou mais itens id\'eanticos\par
+- Desconto de 20% para compras entre 10 e 20 itens id\'eanticos\par
+- Limite m\'e1ximo de 20 itens id\'eanticos por venda\par
+- Sem descontos para compras com menos de 4 itens\par
+\par
+O projeto tamb\'e9m implementa eventos de dom\'ednio que s\'e3o registrados no log da aplica\'e7\'e3o:\par
+- VendaCriada\par
+- VendaModificada\par
+- VendaCancelada\par
+- ItemCancelado\par
+}
+ 
